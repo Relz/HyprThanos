@@ -1,0 +1,100 @@
+name: Compatibility
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline:
+    name: Hyprland v0.56.2 baseline
+    runs-on: ubuntu-24.04
+    env:
+      HYPRLAND_REF: v0.56.2
+      # v0.56.2's lockfile selects glaze 8, but its CMake build requires glaze 7.
+      NIXPKGS_REF: 12d28633cf8e2899ac83315a7e5495fda119d193
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            extra-substituters = https://hyprland.cachix.org
+            extra-trusted-public-keys = hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc=
+      - name: Build against Hyprland
+        run: |
+          NIX_ARGS=(--override-input nixpkgs "github:NixOS/nixpkgs/${NIXPKGS_REF}")
+          HYPRLAND_PREFIX="$(nix build "${NIX_ARGS[@]}" --no-link --print-out-paths "github:hyprwm/Hyprland/${HYPRLAND_REF}#hyprland^dev")"
+          export HYPRLAND_PREFIX
+          nix develop "${NIX_ARGS[@]}" "github:hyprwm/Hyprland/${HYPRLAND_REF}" --command bash -euo pipefail -c '
+            export PKG_CONFIG_PATH="$HYPRLAND_PREFIX/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+            pkg-config --modversion hyprland
+            cmake --fresh -S . -B build/compat -DCMAKE_BUILD_TYPE=Release
+            cmake --build build/compat --parallel 2
+            nm -D --defined-only build/compat/libhyprthanos.so | c++filt > build/compat/exported-symbols.txt
+            grep -Eq "pluginAPIVersion" build/compat/exported-symbols.txt
+            grep -Eq "pluginInit" build/compat/exported-symbols.txt
+            grep -Eq "pluginExit" build/compat/exported-symbols.txt
+          '
+
+  rolling:
+    name: Hyprland ${{ matrix.target }} probe
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - latest
+          - main
+    steps:
+      - uses: actions/checkout@v7
+      - name: Resolve Hyprland revision
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "${{ matrix.target }}" == "latest" ]]; then
+            ref="$(gh api repos/hyprwm/Hyprland/releases/latest --jq '.tag_name')"
+          else
+            ref="main"
+          fi
+          printf 'HYPRLAND_REF=%s\n' "$ref" >> "$GITHUB_ENV"
+          if [[ "$ref" == "v0.56.2" ]]; then
+            printf 'NIXPKGS_REF=%s\n' '12d28633cf8e2899ac83315a7e5495fda119d193' >> "$GITHUB_ENV"
+          fi
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            extra-substituters = https://hyprland.cachix.org
+            extra-trusted-public-keys = hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc=
+      - name: Build against Hyprland
+        run: |
+          NIX_ARGS=()
+          if [[ -n "${NIXPKGS_REF:-}" ]]; then
+            NIX_ARGS=(--override-input nixpkgs "github:NixOS/nixpkgs/${NIXPKGS_REF}")
+          fi
+          HYPRLAND_PREFIX="$(nix build "${NIX_ARGS[@]}" --no-link --print-out-paths "github:hyprwm/Hyprland/${HYPRLAND_REF}#hyprland^dev")"
+          export HYPRLAND_PREFIX
+          nix develop "${NIX_ARGS[@]}" "github:hyprwm/Hyprland/${HYPRLAND_REF}" --command bash -euo pipefail -c '
+            export PKG_CONFIG_PATH="$HYPRLAND_PREFIX/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+            pkg-config --modversion hyprland
+            cmake --fresh -S . -B build/compat -DCMAKE_BUILD_TYPE=Release
+            cmake --build build/compat --parallel 2
+            nm -D --defined-only build/compat/libhyprthanos.so | c++filt > build/compat/exported-symbols.txt
+            grep -Eq "pluginAPIVersion" build/compat/exported-symbols.txt
+            grep -Eq "pluginInit" build/compat/exported-symbols.txt
+            grep -Eq "pluginExit" build/compat/exported-symbols.txt
+          '
