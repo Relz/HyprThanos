@@ -1,0 +1,16 @@
+[repository]
+name = "hyprthanos"
+authors = ["Relz"]
+commit_pins = [
+    ["efb50993780079460b0cbed1363e2166a2de1d9f", "bf242ebf0dc74c84552a0e5c2520198c9d6de361"],
+]
+
+[hyprthanos]
+description = "Thanos-style window close effect for Hyprland"
+authors = ["Relz"]
+output = "build/libhyprthanos.so"
+build = [
+    "cmake --fresh -S . -B build -DCMAKE_BUILD_TYPE=Release",
+    "cmake --build build --parallel",
+]
+since_hyprland = 7661

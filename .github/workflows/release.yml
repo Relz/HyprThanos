@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  validate:
+    name: Validate release version
+    if: github.event.deleted == false
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check tag against CMake version
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release tags must use vX.Y.Z without leading zeroes."
+            exit 1
+          fi
+          version="$(sed -nE 's/^[[:space:]]*project\(hyprthanos[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]+.*$/\1/p' CMakeLists.txt)"
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "::error::Tag $RELEASE_TAG does not match CMake project version '$version'."
+            exit 1
+          fi
+
+  compatibility:
+    needs: validate
+    uses: ./.github/workflows/compatibility.yml
+
+  publish:
+    name: Publish GitHub release
+    needs: compatibility
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Create release unless it already exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; leaving it unchanged."
+            exit 0
+          fi
+          bash .github/scripts/release-notes.sh "$RELEASE_TAG" "$GH_REPO" > "$RUNNER_TEMP/release-notes.md"
+          remote_sha="$(gh api "repos/$GH_REPO/commits/refs/tags/$RELEASE_TAG" --jq .sha)"
+          if [[ "$remote_sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::Tag $RELEASE_TAG no longer points to the checked commit $RELEASE_SHA."
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --verify-tag --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --title "HyprThanos ${RELEASE_TAG#v}"
