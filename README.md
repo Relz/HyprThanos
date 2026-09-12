@@ -1,5 +1,9 @@
 # HyprThanos
 
+<p align="center">
+  <img src="docs/hyprthanos.svg" alt="HyprThanos — an application window disintegrating into dust" width="256" height="256">
+</p>
+
 HyprThanos is a minimal Hyprland plugin that replaces an eligible window's normal close fade with a GPU dust-disintegration effect. It reuses Hyprland's native window snapshot, `windowsOut` geometry, `fadeOut` progress, z-order, dim/blur metadata, damage scheduling, and cleanup. On the custom path, the snapshot is rendered only through source-space grain instances with continuously staggered release times; no separate fading copy, second snapshot, or closed `CWindow` is retained. Rendering failures fall back to the stock texture fade.
 
 ## Demo
