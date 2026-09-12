@@ -4,7 +4,7 @@ HyprThanos is a minimal Hyprland plugin that replaces an eligible window's norma
 
 ## Demo
 
-[Watch the HyprThanos demo](docs/demo.mp4)
+https://github.com/user-attachments/assets/714d79a0-6fe5-4c5f-8fdc-d21047789bbe
 
 ## Compatibility
 
