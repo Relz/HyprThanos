@@ -23,26 +23,9 @@ Hyprland plugins exchange internal C++ objects and do not have a stable ABI. Reb
 
 The dust effect currently works only on non-rotated, non-mirrored SDR/sRGB displays. Unsupported display configurations automatically fall back to Hyprland's normal fadeout animation.
 
-## Build
-
-Install Hyprland development headers, CMake, pkg-config, a C++23 compiler compatible with the Hyprland build, and GLESv2 development files. Then run:
-
-```sh
-cmake --fresh -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build --parallel
-```
-
-The result is `build/libhyprthanos.so`. For a release build, use `-DCMAKE_BUILD_TYPE=Release`. Always use a fresh build directory after updating Hyprland so CMake cannot retain an older pkg-config result.
-
-Verify the required entry points with:
-
-```sh
-nm -D --defined-only build/libhyprthanos.so | c++filt | grep -E 'plugin(APIVersion|Init|Exit)'
-```
-
 ## Hyprpm
 
-To let Hyprland's plugin manager build and load the plugin from a Git checkout, install the repository and enable the plugin:
+`hyprpm`, Hyprland's plugin manager, is the recommended way to install HyprThanos. It builds and loads the plugin from a Git checkout. Install the repository and enable the plugin:
 
 ```sh
 hyprpm update
@@ -71,11 +54,9 @@ end)
 
 ## Configure
 
-The effect is disabled by default. With Hyprland's Lua configuration, load a manually built plugin before setting its typed values:
+The effect is disabled by default. After installing the plugin and setting up autoloading as described in [Hyprpm](#hyprpm), add this block to your Hyprland Lua configuration to enable and configure the effect:
 
 ```lua
-hl.plugin.load("/absolute/path/to/hyprthanos/build/libhyprthanos.so")
-
 if hl.get_config("plugin.hyprthanos.enabled") ~= nil then
     hl.config({
         plugin = {
@@ -95,7 +76,7 @@ if hl.get_config("plugin.hyprthanos.enabled") ~= nil then
 end
 ```
 
-The guard skips plugin-owned keys during the first parse. Hyprland loads the plugin and reparses the configuration, at which point the values exist and are applied. When `hyprpm` manages loading, omit the `hl.plugin.load(...)` line and keep the guard.
+The guard skips plugin-owned keys while the plugin is not yet loaded, including during the first configuration parse at startup. Once `hyprpm reload` loads the plugin, Hyprland reparses the configuration, at which point the values exist and are applied.
 
 Configuration ranges:
 
@@ -119,7 +100,30 @@ Configuration ranges:
 
 There is no separate duration setting. Continuous deterministic release times compress each grain's decelerating curved movement, local rotation, and individual fade into Hyprland's native `fadeOut` animation. Windows closed under `no_anim`, or without a valid native snapshot, receive no dust effect.
 
+## Build
+
+Install Hyprland development headers, CMake, pkg-config, a C++23 compiler compatible with the Hyprland build, and GLESv2 development files. Then run:
+
+```sh
+cmake --fresh -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --parallel
+```
+
+The result is `build/libhyprthanos.so`. For a release build, use `-DCMAKE_BUILD_TYPE=Release`. Always use a fresh build directory after updating Hyprland so CMake cannot retain an older pkg-config result.
+
+Verify the required entry points with:
+
+```sh
+nm -D --defined-only build/libhyprthanos.so | c++filt | grep -E 'plugin(APIVersion|Init|Exit)'
+```
+
 ## Manual Loading
+
+To load a [manually built plugin](#build) from your Hyprland Lua configuration, add this line before the guarded configuration block in [Configure](#configure):
+
+```lua
+hl.plugin.load("/absolute/path/to/hyprthanos/build/libhyprthanos.so")
+```
 
 For one-session testing, use an absolute path:
 
