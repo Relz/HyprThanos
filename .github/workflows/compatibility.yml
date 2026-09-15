@@ -19,12 +19,22 @@ concurrency:
 
 jobs:
   baseline:
-    name: Hyprland v0.56.2 baseline
+    name: Hyprland ${{ matrix.target }} baseline
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: v0.56.2
+            flake: github:hyprwm/Hyprland/v0.56.2
+            # v0.56.2's lockfile selects glaze 8, but its CMake build requires glaze 7.
+            nixpkgs: 12d28633cf8e2899ac83315a7e5495fda119d193
+          - target: modern-1b85c7a
+            flake: git+https://github.com/hyprwm/Hyprland?ref=main&rev=1b85c7aa1b5c41d906880f0f495bcd0749a23175&shallow=0
+            nixpkgs: ''
     env:
-      HYPRLAND_REF: v0.56.2
-      # v0.56.2's lockfile selects glaze 8, but its CMake build requires glaze 7.
-      NIXPKGS_REF: 12d28633cf8e2899ac83315a7e5495fda119d193
+      HYPRLAND_FLAKE: ${{ matrix.flake }}
+      NIXPKGS_REF: ${{ matrix.nixpkgs }}
     steps:
       - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
@@ -34,20 +44,17 @@ jobs:
             extra-substituters = https://hyprland.cachix.org
             extra-trusted-public-keys = hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc=
       - name: Build against Hyprland
-        run: |
-          NIX_ARGS=(--override-input nixpkgs "github:NixOS/nixpkgs/${NIXPKGS_REF}")
-          HYPRLAND_PREFIX="$(nix build "${NIX_ARGS[@]}" --no-link --print-out-paths "github:hyprwm/Hyprland/${HYPRLAND_REF}#hyprland^dev")"
-          export HYPRLAND_PREFIX
-          nix develop "${NIX_ARGS[@]}" "github:hyprwm/Hyprland/${HYPRLAND_REF}" --command bash -euo pipefail -c '
-            export PKG_CONFIG_PATH="$HYPRLAND_PREFIX/share/pkgconfig:${PKG_CONFIG_PATH:-}"
-            pkg-config --modversion hyprland
-            cmake --fresh -S . -B build/compat -DCMAKE_BUILD_TYPE=Release
-            cmake --build build/compat --parallel 2
-            nm -D --defined-only build/compat/libhyprthanos.so | c++filt > build/compat/exported-symbols.txt
-            grep -Eq "pluginAPIVersion" build/compat/exported-symbols.txt
-            grep -Eq "pluginInit" build/compat/exported-symbols.txt
-            grep -Eq "pluginExit" build/compat/exported-symbols.txt
-          '
+        run: bash .github/scripts/compatibility.sh
+      - name: Upload compatibility diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-${{ matrix.target }}
+          path: |
+            build/compat/compatibility-report/
+            build/compat/Testing/Temporary/LastTest.log
+            build/compat/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore
 
   rolling:
     name: Hyprland ${{ matrix.target }} probe
@@ -86,20 +93,14 @@ jobs:
             extra-substituters = https://hyprland.cachix.org
             extra-trusted-public-keys = hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc=
       - name: Build against Hyprland
-        run: |
-          NIX_ARGS=()
-          if [[ -n "${NIXPKGS_REF:-}" ]]; then
-            NIX_ARGS=(--override-input nixpkgs "github:NixOS/nixpkgs/${NIXPKGS_REF}")
-          fi
-          HYPRLAND_PREFIX="$(nix build "${NIX_ARGS[@]}" --no-link --print-out-paths "${HYPRLAND_FLAKE}#hyprland^dev")"
-          export HYPRLAND_PREFIX
-          nix develop "${NIX_ARGS[@]}" "$HYPRLAND_FLAKE" --command bash -euo pipefail -c '
-            export PKG_CONFIG_PATH="$HYPRLAND_PREFIX/share/pkgconfig:${PKG_CONFIG_PATH:-}"
-            pkg-config --modversion hyprland
-            cmake --fresh -S . -B build/compat -DCMAKE_BUILD_TYPE=Release
-            cmake --build build/compat --parallel 2
-            nm -D --defined-only build/compat/libhyprthanos.so | c++filt > build/compat/exported-symbols.txt
-            grep -Eq "pluginAPIVersion" build/compat/exported-symbols.txt
-            grep -Eq "pluginInit" build/compat/exported-symbols.txt
-            grep -Eq "pluginExit" build/compat/exported-symbols.txt
-          '
+        run: bash .github/scripts/compatibility.sh
+      - name: Upload compatibility diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-${{ matrix.target }}
+          path: |
+            build/compat/compatibility-report/
+            build/compat/Testing/Temporary/LastTest.log
+            build/compat/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore

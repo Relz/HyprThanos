@@ -17,7 +17,9 @@ HyprThanos requires:
 - Hyprland `0.56.2` or newer
 - x86_64 and the OpenGL renderer
 
-Hyprland `0.56.2` is the validated baseline. Newer revisions are supported on a best-effort basis when the plugin still builds and its runtime capability checks pass. An incompatible API change fails the build or rejects the load until the plugin is adapted.
+Hyprland `0.56.2` and development revision `1b85c7aa1b5c41d906880f0f495bcd0749a23175` are the pinned compatibility baselines. Both are built and checked for exact hook symbols on every push and pull request. Scheduled and manual checks also probe the latest release and `main`. Newer revisions are supported on a best-effort basis when the plugin still builds and its runtime capability checks pass. An incompatible API change fails the build or rejects the load until the plugin is adapted.
+
+The source adapts to both the legacy window/workspace API and the newer `Workspace::CHLWorkspace`, window backend/presentation/effects, and rendering APIs. See [compatibility development and testing](docs/compatibility.md) for the feature checks, reproducible builds, and runtime checks.
 
 Hyprland plugins exchange internal C++ objects and do not have a stable ABI. Rebuild this plugin against the exact headers for the installed compositor after every Hyprland or linked Hyprland-library update. A binary built for one ABI must not be reused with another. Before hooks or configuration values are registered, the plugin compares the complete build-time and server ABI strings and rejects a mismatch. It also requires one exact target for each internal function hook and rolls back a partial hook installation on failure.
 
@@ -158,7 +160,7 @@ git tag -a v0.1.1 -m "HyprThanos 0.1.1"
 git push origin v0.1.1
 ```
 
-The `Release` workflow validates the version, calls the reusable `Compatibility` workflow, and publishes the release with templated release notes and a commit changelog only after the Hyprland `v0.56.2` baseline passes. Branch pushes and pull requests run compatibility checks without publishing; scheduled and manual compatibility runs also probe the latest Hyprland release and `main`.
+The `Release` workflow validates the version, calls the reusable `Compatibility` workflow, and publishes the release with templated release notes and a commit changelog only after both pinned Hyprland baselines pass. Branch pushes and pull requests run compatibility checks without publishing; scheduled and manual compatibility runs also probe the latest Hyprland release and `main`.
 
 Release descriptions use [`.github/RELEASE_TEMPLATE.md`](.github/RELEASE_TEMPLATE.md) from the tagged commit. The version, repository URL, and tag-specific README links are filled in automatically; the minimum Hyprland version comes from the tagged `CMakeLists.txt`.
 
