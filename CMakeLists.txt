@@ -53,6 +53,7 @@ add_library(hyprthanos SHARED
     src/fadeout_hook.cpp
     src/dust_pass.cpp
     src/dust_shader.cpp
+    src/hyprland_compat.cpp
 )
 
 set_target_properties(hyprthanos PROPERTIES

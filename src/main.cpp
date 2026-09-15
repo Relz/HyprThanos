@@ -1,8 +1,8 @@
+#include "compat_log.hpp"
 #include "dust_shader.hpp"
 #include "fadeout_hook.hpp"
 #include "state.hpp"
 
-#include <hyprland/src/debug/log/Logger.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
@@ -65,7 +65,7 @@ namespace HyprThanos {
         try {
             if (!wasActive) {
                 g_state.circuitLogged = true;
-                Log::logger->log(Log::ERR, "{} circuit breaker activated: {}", LOG_PREFIX, reason ? reason : "unknown error");
+                Compat::log(Log::ERR, "{} circuit breaker activated: {}", LOG_PREFIX, reason ? reason : "unknown error");
             }
 
             if (monitor && g_pHyprRenderer)
@@ -131,7 +131,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         rejectLoad("failed to queue a configuration reload");
     }
 
-    Log::logger->log(Log::INFO, "{} loaded for Hyprland commit {} with ABI {}", LOG_PREFIX, GIT_COMMIT_HASH, serverABI);
+    Compat::log(Log::INFO, "{} loaded for Hyprland commit {} with ABI {}", LOG_PREFIX, GIT_COMMIT_HASH, serverABI);
 
     return {PLUGIN_NAME, "Thanos-style window close effect for Hyprland", "Relz", HYPRTHANOS_VERSION};
 }
@@ -139,7 +139,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 APICALL EXPORT void PLUGIN_EXIT() {
     using namespace HyprThanos;
 
-    Log::logger->log(Log::INFO, "{} unload begin", LOG_PREFIX);
+    Compat::log(Log::INFO, "{} unload begin", LOG_PREFIX);
 
     g_state.unloading.store(true);
     g_state.initialized.store(false);
@@ -178,5 +178,5 @@ APICALL EXPORT void PLUGIN_EXIT() {
     g_state.circuitLogged = false;
     g_state.handle        = nullptr;
 
-    Log::logger->log(Log::INFO, "{} unload complete", LOG_PREFIX);
+    Compat::log(Log::INFO, "{} unload complete", LOG_PREFIX);
 }
