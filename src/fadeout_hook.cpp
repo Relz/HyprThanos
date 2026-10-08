@@ -17,6 +17,10 @@
 #include <hyprland/src/render/pass/RectPassElement.hpp>
 #include <hyprland/src/render/pass/TexPassElement.hpp>
 
+#if HYPRTHANOS_RENDER_CONTEXT
+#include <hyprland/src/render/scene/SceneSelection.hpp>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -556,10 +560,38 @@ namespace HyprThanos {
         g_originalCreate     = nullptr;
     }
 
+#if HYPRTHANOS_RENDER_CONTEXT
+    void renderFadeoutsHook(Render::IHyprRenderer* renderer, Render::CRenderContext& context, PHLMONITOR monitor, Desktop::eFadeoutPlane plane, PHLWORKSPACE workspace,
+                           Render::eSceneMode mode) noexcept {
+#else
     void renderFadeoutsHook(Render::IHyprRenderer* renderer, PHLMONITOR monitor, Desktop::eFadeoutPlane plane, PHLWORKSPACE workspace) noexcept {
+#endif
         const auto original = g_original;
         if (!original)
             return;
+
+#if !HYPRTHANOS_RENDER_CONTEXT
+        if (!renderer) {
+            original(renderer, monitor, plane, workspace);
+            return;
+        }
+        auto& context = *renderer;
+#endif
+        const auto callOriginal = [&]() {
+#if HYPRTHANOS_RENDER_CONTEXT
+            original(renderer, context, monitor, plane, workspace, mode);
+#else
+            original(renderer, monitor, plane, workspace);
+#endif
+        };
+
+#if HYPRTHANOS_RENDER_CONTEXT
+        // Offscreen scenes have different selection rules and must not consume live captures.
+        if (mode != Render::eSceneMode::MONITOR || context.readOnlyEffects()) {
+            callOriginal();
+            return;
+        }
+#endif
 
         size_t                              submittedElements = 0;
         std::vector<UP<IPassElement>>       pending;
@@ -568,7 +600,7 @@ namespace HyprThanos {
                 if (!element)
                     continue;
                 try {
-                    renderer->addPassElement(std::move(element));
+                    Compat::addPassElement(context, std::move(element));
                 } catch (...) {
                     return;
                 }
@@ -587,7 +619,7 @@ namespace HyprThanos {
                 } catch (...) {
                 }
             }
-            original(renderer, monitor, plane, workspace);
+            callOriginal();
             return;
         }
 
@@ -685,7 +717,7 @@ namespace HyprThanos {
             }
 
             for (auto& element : pending) {
-                renderer->addPassElement(std::move(element));
+                Compat::addPassElement(context, std::move(element));
                 ++submittedElements;
             }
 
@@ -694,14 +726,14 @@ namespace HyprThanos {
             activateCircuitBreaker("fadeout preparation exception", monitor);
             Compat::log(Log::ERR, "{} renderFadeouts preparation failed: {}", LOG_PREFIX, error.what());
             if (submittedElements == 0)
-                original(renderer, monitor, plane, workspace);
+                callOriginal();
             else
                 submitRemaining();
         } catch (...) {
             activateCircuitBreaker("unknown fadeout preparation exception", monitor);
             Compat::log(Log::ERR, "{} renderFadeouts preparation failed with an unknown exception", LOG_PREFIX);
             if (submittedElements == 0)
-                original(renderer, monitor, plane, workspace);
+                callOriginal();
             else
                 submitRemaining();
         }

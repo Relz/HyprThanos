@@ -1,6 +1,7 @@
 #include "compat_log.hpp"
 #include "dust_shader.hpp"
 #include "fadeout_hook.hpp"
+#include "hyprland_compat.hpp"
 #include "state.hpp"
 
 #include <hyprland/src/plugins/PluginAPI.hpp>
@@ -146,8 +147,7 @@ APICALL EXPORT void PLUGIN_EXIT() {
     removeFadeoutHook();
 
     if (g_pHyprRenderer) {
-        g_pHyprRenderer->currentPass().removeAllOfType(DUST_PASS_NAME);
-        g_pHyprRenderer->m_renderPass.removeAllOfType(DUST_PASS_NAME);
+        Compat::removePassElements(*g_pHyprRenderer, DUST_PASS_NAME);
 
         for (const auto& monitorRef : g_state.observedMonitors) {
             if (const auto monitor = monitorRef.lock(); monitor)

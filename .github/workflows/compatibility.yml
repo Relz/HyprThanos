@@ -29,8 +29,8 @@ jobs:
             flake: github:hyprwm/Hyprland/v0.56.2
             # v0.56.2's lockfile selects glaze 8, but its CMake build requires glaze 7.
             nixpkgs: 12d28633cf8e2899ac83315a7e5495fda119d193
-          - target: modern-1b85c7a
-            flake: git+https://github.com/hyprwm/Hyprland?ref=main&rev=1b85c7aa1b5c41d906880f0f495bcd0749a23175&shallow=0
+          - target: context-19fb395
+            flake: git+https://github.com/hyprwm/Hyprland?ref=main&rev=19fb395d45314960e6f79f17994a84094f1cd4f6&shallow=0
             nixpkgs: ''
     env:
       HYPRLAND_FLAKE: ${{ matrix.flake }}
@@ -51,8 +51,6 @@ jobs:
         with:
           name: compatibility-${{ matrix.target }}
           path: |
-            build/compat/compatibility-report/
-            build/compat/Testing/Temporary/LastTest.log
             build/compat/CMakeFiles/CMakeConfigureLog.yaml
           if-no-files-found: ignore
 
@@ -100,7 +98,5 @@ jobs:
         with:
           name: compatibility-${{ matrix.target }}
           path: |
-            build/compat/compatibility-report/
-            build/compat/Testing/Temporary/LastTest.log
             build/compat/CMakeFiles/CMakeConfigureLog.yaml
           if-no-files-found: ignore
