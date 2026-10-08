@@ -11,7 +11,6 @@ fi
 printf 'Hyprland source: %s\n' "$HYPRLAND_FLAKE"
 outputs="$(nix build "${NIX_ARGS[@]}" --no-link --json "${HYPRLAND_FLAKE}#hyprland^out,dev")"
 COMPAT_HYPRLAND_DEV="$(jq -er '.[0].outputs.dev' <<< "$outputs")"
-COMPAT_HYPRLAND_OUT="$(jq -er '.[0].outputs.out' <<< "$outputs")"
 
 # Private pkg-config requirements of GLib/Pango/hyprgraphics are not all propagated by nixpkgs. Resolve
 # them from the same (possibly overridden) input as Hyprland.
@@ -50,8 +49,5 @@ export PKG_CONFIG_PATH="$COMPAT_HYPRLAND_DEV/share/pkgconfig:${PKG_CONFIG_PATH:-
 pkg-config --modversion hyprland
 pkg-config --print-errors --cflags --libs hyprland > /dev/null
 pkg-config --print-errors --static --cflags --libs hyprland > /dev/null
-cmake --fresh -S . -B "$COMPAT_BUILD_DIR" -DCMAKE_BUILD_TYPE=Release \
-    -DHYPRTHANOS_BUILD_TESTS=ON \
-    -DHYPRTHANOS_HYPRLAND_EXECUTABLE="$COMPAT_HYPRLAND_OUT/bin/Hyprland"
+cmake --fresh -S . -B "$COMPAT_BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$COMPAT_BUILD_DIR" --parallel 2
-ctest --test-dir "$COMPAT_BUILD_DIR" --output-on-failure

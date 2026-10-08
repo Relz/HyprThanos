@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hyprland_features.hpp"
+
 #include <array>
 #include <string_view>
 
@@ -18,11 +20,20 @@ namespace HyprThanos::Compat {
 
     inline constexpr SHookContract RENDER_FADEOUTS{
         "renderFadeouts", "renderFadeouts",
-        "Render::IHyprRenderer::renderFadeouts(Hyprutils::Memory::CSharedPointer<Monitor::CMonitor>, Desktop::eFadeoutPlane, "
-#if __has_include(<hyprland/src/workspace/HLWorkspace.hpp>)
-        "Hyprutils::Memory::CSharedPointer<Workspace::CHLWorkspace>)",
+        "Render::IHyprRenderer::renderFadeouts("
+#if HYPRTHANOS_RENDER_CONTEXT
+        "Render::CRenderContext&, "
+#endif
+        "Hyprutils::Memory::CSharedPointer<Monitor::CMonitor>, Desktop::eFadeoutPlane, "
+#if HYPRTHANOS_RENDER_CONTEXT
+        "Hyprutils::Memory::CSharedPointer<Workspace::CHLWorkspace>"
 #else
-        "Hyprutils::Memory::CSharedPointer<CWorkspace>)",
+        "Hyprutils::Memory::CSharedPointer<CWorkspace>"
+#endif
+#if HYPRTHANOS_RENDER_CONTEXT
+        ", Render::eSceneMode)",
+#else
+        ")",
 #endif
     };
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "state.hpp"
+#include "hyprland_compat.hpp"
 
 #include <hyprland/src/render/pass/PassElement.hpp>
 #include <hyprland/src/render/pass/TexPassElement.hpp>
@@ -30,17 +31,25 @@ namespace HyprThanos {
         explicit CThanosDustPassElement(SDustPassData data);
         ~CThanosDustPassElement() override = default;
 
+#if HYPRTHANOS_RENDER_CONTEXT
+        std::vector<UP<IPassElement>> draw(Render::CRenderContext& context) override;
+        bool                          needsLiveBlur(Render::CRenderContext& context) override;
+        bool                          needsPrecomputeBlur(Render::CRenderContext& context) override;
+        std::optional<CBox>           boundingBox(Render::CRenderContext& context) override;
+        CRegion                       opaqueRegion(Render::CRenderContext& context) override;
+#else
         std::vector<UP<IPassElement>> draw() override;
         bool                          needsLiveBlur() override;
         bool                          needsPrecomputeBlur() override;
-        const char*                   passName() override;
-        ePassElementType              type() override;
         std::optional<CBox>           boundingBox() override;
         CRegion                       opaqueRegion() override;
+#endif
+        const char*                   passName() override;
+        ePassElementType              type() override;
 
       private:
         std::vector<UP<IPassElement>> fallback() const;
-        bool drawDust(PHLMONITOR monitor);
+        bool drawDust(Compat::RenderContext& context, PHLMONITOR monitor);
 
         SDustPassData m_data;
     };

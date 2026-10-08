@@ -101,7 +101,14 @@ namespace HyprThanos {
         return elements;
     }
 
+#if HYPRTHANOS_RENDER_CONTEXT
+    std::vector<UP<IPassElement>> CThanosDustPassElement::draw(Render::CRenderContext& context) {
+#else
     std::vector<UP<IPassElement>> CThanosDustPassElement::draw() {
+        if (!g_pHyprRenderer)
+            return fallback();
+        auto& context = *g_pHyprRenderer;
+#endif
         const auto monitor = m_data.monitor.lock();
         try {
             if (!monitor || g_state.unloading.load() || g_state.circuitBreaker.load() || !g_state.shader || !m_data.source.tex || !m_data.source.tex->ok())
@@ -112,7 +119,7 @@ namespace HyprThanos {
                 return fallback();
             }
 
-            if (!drawDust(monitor)) {
+            if (!drawDust(context, monitor)) {
                 activateCircuitBreaker("dust pre-draw validation failed", monitor);
                 return fallback();
             }
@@ -124,8 +131,12 @@ namespace HyprThanos {
         }
     }
 
-    bool CThanosDustPassElement::drawDust(PHLMONITOR monitor) {
+    bool CThanosDustPassElement::drawDust(Compat::RenderContext& context, PHLMONITOR monitor) {
         if (!monitor || !g_pHyprRenderer || !Render::GL::g_pHyprOpenGL || !g_state.shader || m_data.source.damage.empty())
+            return false;
+
+        auto& renderData = Compat::renderData(context);
+        if (renderData.pMonitor != monitor)
             return false;
 
         const auto texture = m_data.source.tex;
@@ -140,14 +151,14 @@ namespace HyprThanos {
 
         CRegion drawRegion = m_data.source.damage.copy();
         CRegion envelope{m_data.effectEnvelope};
-        g_pHyprRenderer->m_renderData.renderModif.applyToRegion(envelope);
+        renderData.renderModif.applyToRegion(envelope);
         drawRegion.intersect(envelope);
 
-        if (!g_pHyprRenderer->m_renderData.damage.empty())
-            drawRegion.intersect(g_pHyprRenderer->m_renderData.damage);
+        if (!renderData.damage.empty())
+            drawRegion.intersect(renderData.damage);
 
-        if (!g_pHyprRenderer->m_renderData.clipBox.empty())
-            drawRegion.intersect(g_pHyprRenderer->m_renderData.clipBox);
+        if (!renderData.clipBox.empty())
+            drawRegion.intersect(renderData.clipBox);
 
         if (!m_data.source.clipRegion.empty())
             drawRegion.intersect(m_data.source.clipRegion);
@@ -158,9 +169,9 @@ namespace HyprThanos {
         clearGLErrors();
 
         CBox drawBox = m_data.source.box;
-        g_pHyprRenderer->m_renderData.renderModif.applyToBox(drawBox);
+        renderData.renderModif.applyToBox(drawBox);
 
-        const auto projection = Compat::projectDustBox(*g_pHyprRenderer, drawBox, texture->m_transform);
+        const auto projection = Compat::projectDustBox(context, drawBox, texture->m_transform);
         const auto sourceBox  = boxUniform(m_data.sourceBox);
         const auto windowBox  = boxUniform(m_data.windowBox);
 
@@ -178,7 +189,7 @@ namespace HyprThanos {
         texture->setTexParameter(GL_TEXTURE_WRAP_S, m_data.source.wrapX == WRAP_REPEAT ? GL_REPEAT : GL_CLAMP_TO_EDGE);
         texture->setTexParameter(GL_TEXTURE_WRAP_T, m_data.source.wrapY == WRAP_REPEAT ? GL_REPEAT : GL_CLAMP_TO_EDGE);
 
-        if (g_pHyprRenderer->m_renderData.useNearestNeighbor) {
+        if (renderData.useNearestNeighbor) {
             texture->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             texture->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         } else {
@@ -216,7 +227,7 @@ namespace HyprThanos {
                 Render::GL::g_pHyprOpenGL->useShader(coreShader);
             Compat::setActiveTexture(GL_TEXTURE0);
             texture->unbind();
-            Render::GL::g_pHyprOpenGL->scissor(nullptr);
+            Compat::disableScissor();
             return false;
         }
 
@@ -225,7 +236,7 @@ namespace HyprThanos {
 
         bool drew = false;
         drawRegion.forEachRect([&](const auto& rect) {
-            Render::GL::g_pHyprOpenGL->scissor(&rect, g_pHyprRenderer->m_renderData.transformDamage);
+            Compat::scissor(context, &rect, renderData.transformDamage);
             glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, grid->instances);
             drew = true;
         });
@@ -236,7 +247,7 @@ namespace HyprThanos {
         Compat::bindArrayBuffer(0);
         Compat::setActiveTexture(GL_TEXTURE0);
         texture->unbind();
-        Render::GL::g_pHyprOpenGL->scissor(nullptr);
+        Compat::disableScissor();
 
         if (error != GL_NO_ERROR) {
             activateCircuitBreaker("OpenGL error after dust draw", monitor);
@@ -246,11 +257,19 @@ namespace HyprThanos {
         return drew;
     }
 
+#if HYPRTHANOS_RENDER_CONTEXT
+    bool CThanosDustPassElement::needsLiveBlur(Render::CRenderContext&) {
+#else
     bool CThanosDustPassElement::needsLiveBlur() {
+#endif
         return false;
     }
 
+#if HYPRTHANOS_RENDER_CONTEXT
+    bool CThanosDustPassElement::needsPrecomputeBlur(Render::CRenderContext&) {
+#else
     bool CThanosDustPassElement::needsPrecomputeBlur() {
+#endif
         return false;
     }
 
@@ -262,14 +281,22 @@ namespace HyprThanos {
         return EK_CUSTOM;
     }
 
+#if HYPRTHANOS_RENDER_CONTEXT
+    std::optional<CBox> CThanosDustPassElement::boundingBox(Render::CRenderContext&) {
+#else
     std::optional<CBox> CThanosDustPassElement::boundingBox() {
+#endif
         const auto monitor = m_data.monitor.lock();
         if (!monitor || monitor->m_scale <= 0.F)
             return std::nullopt;
         return m_data.effectEnvelope.copy().scale(1.F / monitor->m_scale).round();
     }
 
+#if HYPRTHANOS_RENDER_CONTEXT
+    CRegion CThanosDustPassElement::opaqueRegion(Render::CRenderContext&) {
+#else
     CRegion CThanosDustPassElement::opaqueRegion() {
+#endif
         return {};
     }
 
