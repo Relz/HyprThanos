@@ -1,23 +1,21 @@
 #include "fadeout_hook.hpp"
 
+#include "compat_log.hpp"
 #include "dust_pass.hpp"
+#include "hook_contract.hpp"
+#include "hyprland_compat.hpp"
 #include "state.hpp"
 
-#include <hyprland/src/debug/log/Logger.hpp>
-#include <hyprland/src/desktop/Workspace.hpp>
 #include <hyprland/src/desktop/state/FadingOutState.hpp>
 #include <hyprland/src/desktop/state/WindowFadeout.hpp>
 #include <hyprland/src/desktop/view/Popup.hpp>
-#include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
-#include <hyprland/src/protocols/XDGShell.hpp>
 #include <hyprland/src/protocols/core/Compositor.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/decorations/IHyprWindowDecoration.hpp>
 #include <hyprland/src/render/pass/RectPassElement.hpp>
 #include <hyprland/src/render/pass/TexPassElement.hpp>
-#include <hyprland/src/render/transformer/MotionBlurTransformer.hpp>
 
 #include <algorithm>
 #include <array>
@@ -58,24 +56,20 @@ namespace HyprThanos {
             return true;
         }
 
-        bool matchesExpectedRenderSignature(const SFunctionMatch& match) {
-            constexpr std::string_view EXPECTED =
-                "Render::IHyprRenderer::renderFadeouts(Hyprutils::Memory::CSharedPointer<Monitor::CMonitor>, Desktop::eFadeoutPlane, "
-                "Hyprutils::Memory::CSharedPointer<CWorkspace>)";
-            return match.address && match.demangled == EXPECTED;
-        }
+        std::optional<SFunctionMatch> resolveHookTarget(const Compat::SHookContract& contract) {
+            auto matches = HyprlandAPI::findFunctionsByName(g_state.handle, std::string{contract.search});
+            std::string candidates;
+            for (const auto& match : matches)
+                candidates += std::format("\n  {}{}", match.demangled, match.address ? "" : " (null address)");
 
-        bool matchesExpectedCreateSignature(const SFunctionMatch& match) {
-            constexpr std::string_view EXPECTED =
-                "Desktop::CWindowFadeout::create(Hyprutils::Memory::CSharedPointer<Desktop::View::CWindow>, "
-                "Hyprutils::Memory::CSharedPointer<Render::IFramebuffer>, float)";
-            return match.address && match.demangled == EXPECTED;
-        }
+            std::erase_if(matches, [&](const auto& match) { return !contract.matches(match); });
+            if (matches.size() == 1)
+                return matches.front();
 
-        bool matchesExpectedSnapshotSignature(const SFunctionMatch& match) {
-            constexpr std::string_view EXPECTED =
-                "Render::IHyprRenderer::makeSnapshotFB(Hyprutils::Memory::CSharedPointer<Desktop::View::CWindow>)";
-            return match.address && match.demangled == EXPECTED;
+            g_installError = std::format("expected one exact {} target '{}', found {}; candidates:{}", contract.name, contract.signature,
+                                         matches.size(), candidates.empty() ? " none" : candidates);
+            Compat::log(Log::ERR, "{} {}", LOG_PREFIX, g_installError);
+            return std::nullopt;
         }
 
         bool finiteBox(const CBox& box) {
@@ -104,30 +98,18 @@ namespace HyprThanos {
             *bounds             = {left, top, right - left, bottom - top};
         }
 
-        Vector2D windowRenderOffset(const PHLWINDOW& window) {
-            Vector2D offset = window->m_floatingOffset;
-            if (!window->m_pinned && window->m_workspace)
-                offset += window->m_workspace->m_renderOffset->value();
-            return offset;
-        }
-
-        bool hasUnsupportedWindowContent(const PHLWINDOW& window) {
-            if (std::ranges::any_of(window->m_transformers, [](const auto& transformer) {
-                    return !transformer || dynamic_cast<Render::CMotionBlurTransformer*>(transformer.get()) == nullptr;
-                }))
-                return true;
-
-            return std::ranges::any_of(window->m_windowDecorations, [](const auto& decoration) {
-                return !decoration || decoration->getDecorationType() == DECORATION_CUSTOM;
-            });
-        }
-
         std::optional<CBox> snapshotContentBox(const PHLWINDOW& window, const PHLMONITOR& monitor, const SP<Render::IFramebuffer>& snapshot) {
-            if (!window || !monitor || !snapshot || snapshot->m_size.x <= 0 || snapshot->m_size.y <= 0 || hasUnsupportedWindowContent(window))
+            if (!window || !monitor || !snapshot || snapshot->m_size.x <= 0 || snapshot->m_size.y <= 0 || Compat::hasUnsupportedTransformers(window))
+                return std::nullopt;
+
+            const auto decorations = Compat::windowDecorations(window);
+            if (std::ranges::any_of(decorations, [](auto* decoration) {
+                    return !decoration || decoration->getDecorationType() == DECORATION_CUSTOM;
+                }))
                 return std::nullopt;
 
             const auto     windowBox     = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-            const auto     renderOffset  = windowRenderOffset(window);
+            const auto     renderOffset  = Compat::windowRenderOffset(window);
             const Vector2D viewportSize  = {std::max(windowBox.w, 5.0), std::max(windowBox.h, 5.0)};
             const Vector2D renderPosition = windowBox.pos() + renderOffset;
             std::optional<CBox> bounds;
@@ -135,7 +117,7 @@ namespace HyprThanos {
             includeBox(bounds, {renderPosition, viewportSize});
 
             if (const auto root = window->wlSurface() ? window->wlSurface()->resource() : nullptr; root) {
-                const auto reportedSize = window->getReportedSize();
+                const auto reportedSize = Compat::windowReportedSize(window);
                 const bool scaleSubsurfaces = window->sizeAnimation() && window->sizeAnimation()->isBeingAnimated() && reportedSize.x != 0 && reportedSize.y != 0;
 
                 root->breadthfirst(
@@ -159,7 +141,7 @@ namespace HyprThanos {
 
             SBoxExtents stackedExtents;
             SBoxExtents directExtents;
-            for (const auto& decoration : window->m_windowDecorations) {
+            for (auto* decoration : decorations) {
                 const auto info      = decoration->getPositioningInfo();
                 const auto requested = info.desiredExtents;
                 const auto left      = std::max(requested.topLeft.x, 0.0);
@@ -195,12 +177,13 @@ namespace HyprThanos {
             decorationBox.addExtents(decorationExtents).translate(renderOffset);
             includeBox(bounds, decorationBox);
 
-            const auto xdgSurface = window->m_xdgSurface.lock();
-            if (!window->m_isX11 && xdgSurface && window->m_popupHead) {
-                const Vector2D popupOrigin = renderPosition - xdgSurface->m_current.geometry.pos();
-                window->m_popupHead->breadthfirst(
+            const auto popupGeometry = Compat::windowPopupGeometry(window);
+            const auto popupHead = Compat::windowPopupHead(window);
+            if (popupGeometry && popupHead) {
+                const Vector2D popupOrigin = renderPosition - popupGeometry->pos();
+                popupHead->breadthfirst(
                     [&](SP<Desktop::View::CPopup> popup, void*) {
-                        if (!popup || !popup->m_mapped || popup->inert() || !popup->wlSurface())
+                        if (!Compat::popupDrawable(popup) || !popup->wlSurface())
                             return;
 
                         const auto root = popup->wlSurface()->resource();
@@ -374,7 +357,7 @@ namespace HyprThanos {
                     return snapshot;
 
                 CBox sourceWindowBox = window->geometricBox(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-                sourceWindowBox.translate(windowRenderOffset(window));
+                sourceWindowBox.translate(Compat::windowRenderOffset(window));
                 sourceWindowBox = monitorPixelBox(sourceWindowBox, monitor);
                 const auto sourceContentBox = snapshotContentBox(window, monitor, snapshot);
                 if (!finiteBox(sourceWindowBox) || !sourceContentBox)
@@ -432,7 +415,7 @@ namespace HyprThanos {
         CTexPassElement::SRenderData nativeTextureData(const SP<Desktop::IFadeout>& fadeout, const SP<Render::ITexture>& texture, const Desktop::SFadeoutRenderEffects& effects,
                                                        const CRegion& damage) {
             CTexPassElement::SRenderData data;
-            data.flipEndFrame          = true;
+            Compat::prepareFadeoutTexture(data);
             data.tex                   = texture;
             data.box                   = fadeout->renderBox();
             data.a                     = fadeout->alpha();
@@ -484,35 +467,19 @@ namespace HyprThanos {
     bool installFadeoutHook() {
         g_installError.clear();
 
-        auto renderMatches = HyprlandAPI::findFunctionsByName(g_state.handle, "renderFadeouts");
-        std::erase_if(renderMatches, [](const auto& match) { return !matchesExpectedRenderSignature(match); });
-
-        if (renderMatches.size() != 1) {
-            g_installError = std::format("expected one exact renderFadeouts target, found {}", renderMatches.size());
-            Log::logger->log(Log::ERR, "{} expected one exact renderFadeouts target, found {}", LOG_PREFIX, renderMatches.size());
+        const auto renderTarget = resolveHookTarget(Compat::RENDER_FADEOUTS);
+        if (!renderTarget)
             return false;
-        }
 
-        auto snapshotMatches = HyprlandAPI::findFunctionsByName(g_state.handle, "_ZN6Render13IHyprRenderer14makeSnapshotFB");
-        std::erase_if(snapshotMatches, [](const auto& match) { return !matchesExpectedSnapshotSignature(match); });
-
-        if (snapshotMatches.size() != 1) {
-            g_installError = std::format("expected one exact window makeSnapshotFB target, found {}", snapshotMatches.size());
-            Log::logger->log(Log::ERR, "{} expected one exact window makeSnapshotFB target, found {}", LOG_PREFIX, snapshotMatches.size());
+        const auto snapshotTarget = resolveHookTarget(Compat::WINDOW_SNAPSHOT);
+        if (!snapshotTarget)
             return false;
-        }
 
-        // findFunctionsByName searches mangled symbols, so use this class-qualified Itanium prefix before validating the full demangled signature.
-        auto createMatches = HyprlandAPI::findFunctionsByName(g_state.handle, "_ZN7Desktop14CWindowFadeout6create");
-        std::erase_if(createMatches, [](const auto& match) { return !matchesExpectedCreateSignature(match); });
-
-        if (createMatches.size() != 1) {
-            g_installError = std::format("expected one exact CWindowFadeout::create target, found {}", createMatches.size());
-            Log::logger->log(Log::ERR, "{} expected one exact CWindowFadeout::create target, found {}", LOG_PREFIX, createMatches.size());
+        const auto createTarget = resolveHookTarget(Compat::CREATE_FADEOUT);
+        if (!createTarget)
             return false;
-        }
 
-        g_state.snapshotHook = HyprlandAPI::createFunctionHook(g_state.handle, snapshotMatches.front().address, reinterpret_cast<const void*>(&makeWindowSnapshotHook));
+        g_state.snapshotHook = HyprlandAPI::createFunctionHook(g_state.handle, snapshotTarget->address, reinterpret_cast<const void*>(&makeWindowSnapshotHook));
         if (!g_state.snapshotHook || !g_state.snapshotHook->hook()) {
             if (g_state.snapshotHook)
                 HyprlandAPI::removeFunctionHook(g_state.handle, g_state.snapshotHook);
@@ -528,7 +495,7 @@ namespace HyprThanos {
             return false;
         }
 
-        g_state.createHook = HyprlandAPI::createFunctionHook(g_state.handle, createMatches.front().address, reinterpret_cast<const void*>(&createWindowFadeoutHook));
+        g_state.createHook = HyprlandAPI::createFunctionHook(g_state.handle, createTarget->address, reinterpret_cast<const void*>(&createWindowFadeoutHook));
         if (!g_state.createHook || !g_state.createHook->hook()) {
             g_installError = "failed to activate CWindowFadeout::create hook";
             removeFadeoutHook();
@@ -542,7 +509,7 @@ namespace HyprThanos {
             return false;
         }
 
-        g_state.renderHook = HyprlandAPI::createFunctionHook(g_state.handle, renderMatches.front().address, reinterpret_cast<const void*>(&renderFadeoutsHook));
+        g_state.renderHook = HyprlandAPI::createFunctionHook(g_state.handle, renderTarget->address, reinterpret_cast<const void*>(&renderFadeoutsHook));
         if (!g_state.renderHook || !g_state.renderHook->hook()) {
             g_installError = "failed to activate renderFadeouts hook";
             removeFadeoutHook();
@@ -563,19 +530,19 @@ namespace HyprThanos {
         try {
             if (g_state.renderHook) {
                 if (!g_state.renderHook->unhook())
-                    Log::logger->log(Log::WARN, "{} renderFadeouts hook was already inactive", LOG_PREFIX);
+                    Compat::log(Log::WARN, "{} renderFadeouts hook was already inactive", LOG_PREFIX);
                 HyprlandAPI::removeFunctionHook(g_state.handle, g_state.renderHook);
             }
 
             if (g_state.createHook) {
                 if (!g_state.createHook->unhook())
-                    Log::logger->log(Log::WARN, "{} CWindowFadeout::create hook was already inactive", LOG_PREFIX);
+                    Compat::log(Log::WARN, "{} CWindowFadeout::create hook was already inactive", LOG_PREFIX);
                 HyprlandAPI::removeFunctionHook(g_state.handle, g_state.createHook);
             }
 
             if (g_state.snapshotHook) {
                 if (!g_state.snapshotHook->unhook())
-                    Log::logger->log(Log::WARN, "{} window makeSnapshotFB hook was already inactive", LOG_PREFIX);
+                    Compat::log(Log::WARN, "{} window makeSnapshotFB hook was already inactive", LOG_PREFIX);
                 HyprlandAPI::removeFunctionHook(g_state.handle, g_state.snapshotHook);
             }
         } catch (...) {
@@ -725,14 +692,14 @@ namespace HyprThanos {
             sweepObservations();
         } catch (const std::exception& error) {
             activateCircuitBreaker("fadeout preparation exception", monitor);
-            Log::logger->log(Log::ERR, "{} renderFadeouts preparation failed: {}", LOG_PREFIX, error.what());
+            Compat::log(Log::ERR, "{} renderFadeouts preparation failed: {}", LOG_PREFIX, error.what());
             if (submittedElements == 0)
                 original(renderer, monitor, plane, workspace);
             else
                 submitRemaining();
         } catch (...) {
             activateCircuitBreaker("unknown fadeout preparation exception", monitor);
-            Log::logger->log(Log::ERR, "{} renderFadeouts preparation failed with an unknown exception", LOG_PREFIX);
+            Compat::log(Log::ERR, "{} renderFadeouts preparation failed with an unknown exception", LOG_PREFIX);
             if (submittedElements == 0)
                 original(renderer, monitor, plane, workspace);
             else

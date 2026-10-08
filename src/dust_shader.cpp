@@ -1,9 +1,8 @@
 #include "dust_shader.hpp"
 
+#include "compat_log.hpp"
 #include "shaders.hpp"
 #include "state.hpp"
-
-#include <hyprland/src/debug/log/Logger.hpp>
 
 #include <string>
 
@@ -20,7 +19,7 @@ namespace HyprThanos {
             m_shader = makeShared<CShader>();
 
             if (!m_shader->createProgram(std::string{Shaders::VERTEX}, std::string{Shaders::FRAGMENT}, true, true)) {
-                Log::logger->log(Log::ERR, "{} dust shader compilation or linking failed", LOG_PREFIX);
+                Compat::log(Log::ERR, "{} dust shader compilation or linking failed", LOG_PREFIX);
                 m_shader.reset();
                 m_state = EShaderState::FAILED;
                 return false;
@@ -49,7 +48,7 @@ namespace HyprThanos {
                 m_uniforms[U_DRAW_SIZE] >= 0 && m_uniforms[U_GRID_SIZE] >= 0;
 
             if (!standardLocationsValid || !customLocationsValid || glGetError() != GL_NO_ERROR) {
-                Log::logger->log(Log::ERR, "{} dust shader has invalid resources or uniforms", LOG_PREFIX);
+                Compat::log(Log::ERR, "{} dust shader has invalid resources or uniforms", LOG_PREFIX);
                 m_shader->destroy();
                 m_shader.reset();
                 m_state = EShaderState::FAILED;
@@ -57,14 +56,14 @@ namespace HyprThanos {
             }
 
             m_state = EShaderState::READY;
-            Log::logger->log(Log::INFO, "{} dust shader ready", LOG_PREFIX);
+            Compat::log(Log::INFO, "{} dust shader ready", LOG_PREFIX);
             return true;
         } catch (...) {
             if (m_shader)
                 m_shader->destroy();
             m_shader.reset();
             m_state = EShaderState::FAILED;
-            Log::logger->log(Log::ERR, "{} exception while preparing the dust shader", LOG_PREFIX);
+            Compat::log(Log::ERR, "{} exception while preparing the dust shader", LOG_PREFIX);
             return false;
         }
     }

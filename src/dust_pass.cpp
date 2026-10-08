@@ -1,6 +1,7 @@
 #include "dust_pass.hpp"
 
 #include "dust_shader.hpp"
+#include "hyprland_compat.hpp"
 
 #include <hyprland/src/helpers/math/Math.hpp>
 #include <hyprland/src/output/Monitor.hpp>
@@ -159,19 +160,14 @@ namespace HyprThanos {
         CBox drawBox = m_data.source.box;
         g_pHyprRenderer->m_renderData.renderModif.applyToBox(drawBox);
 
-        const auto monitorInverse = Math::wlTransformToHyprutils(Math::invertTransform(monitor->m_transform));
-        auto       transform      = texture->m_transform;
-        if (g_pHyprRenderer->monitorTransformEnabled())
-            transform = Math::composeTransform(monitorInverse, transform);
-
-        const auto projection = g_pHyprRenderer->projectBoxToTarget(drawBox, transform);
+        const auto projection = Compat::projectDustBox(*g_pHyprRenderer, drawBox, texture->m_transform);
         const auto sourceBox  = boxUniform(m_data.sourceBox);
         const auto windowBox  = boxUniform(m_data.windowBox);
 
         if (glGetError() != GL_NO_ERROR)
             return false;
 
-        glActiveTexture(GL_TEXTURE0);
+        Compat::setActiveTexture(GL_TEXTURE0);
         texture->bind();
 
         if (glGetError() != GL_NO_ERROR) {
@@ -218,7 +214,7 @@ namespace HyprThanos {
         if (vao == 0 || glGetError() != GL_NO_ERROR) {
             if (const auto coreShader = Render::GL::g_pHyprOpenGL->getShaderVariant(Render::SH_FRAG_PASSTHRURGBA); coreShader)
                 Render::GL::g_pHyprOpenGL->useShader(coreShader);
-            glActiveTexture(GL_TEXTURE0);
+            Compat::setActiveTexture(GL_TEXTURE0);
             texture->unbind();
             Render::GL::g_pHyprOpenGL->scissor(nullptr);
             return false;
@@ -237,8 +233,8 @@ namespace HyprThanos {
         const GLenum error = glGetError();
 
         glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glActiveTexture(GL_TEXTURE0);
+        Compat::bindArrayBuffer(0);
+        Compat::setActiveTexture(GL_TEXTURE0);
         texture->unbind();
         Render::GL::g_pHyprOpenGL->scissor(nullptr);
 
